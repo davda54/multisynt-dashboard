@@ -34,6 +34,11 @@ let filterCriteria = {
     label: "Prompt Sensitivity", description: "Median MAD across prompts",
     tooltip: "Median Absolute Deviation of scores across prompt variants, taken as the median over all checkpoints. Default threshold: \u2264 5.",
   },
+  consistency: {
+    enabled: false, minStep: 5000, maxStep: 50000, threshold: 0.5, direction: ">=",
+    label: "Ordering Consistency", description: "Kendall \u03C4 (model rankings)",
+    tooltip: "Average Kendall\u2019s Tau correlation of model rankings between successive checkpoints. Measures whether the relative ordering of models is preserved across training. Default threshold: \u2265 0.5.",
+  },
   promptSwitch: {
     enabled: false, minStep: 5000, maxStep: 50000, threshold: 20.0, direction: "<=",
     label: "Prompt Switch Rate", description: "Best-prompt change rate (%)",
@@ -45,7 +50,7 @@ let filterCriteria = {
     tooltip: "Difference between the maximum score and the task\u2019s random baseline. Verifies the model learned beyond chance. Default threshold: \u2265 5.",
   },
 };
-let filterResults = {}; // per-model: {modelDir: {bench: {criterionName: {value, pass}}}}
+let filterResults = {}; // {bench: {criterionName: {value, pass}}}
 let allFilterBenchmarks = new Set();
 let filterTableExpanded = false;
 
@@ -1020,6 +1025,21 @@ function computeSpearmanRank(x, y) {
   return denom === 0 ? 0 : num / denom;
 }
 
+function computeKendallTau(x, y) {
+  const n = x.length;
+  if (n < 2) return null;
+  let concordant = 0, discordant = 0;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const dx = x[i] - x[j], dy = y[i] - y[j];
+      if (dx * dy > 0) concordant++;
+      else if (dx * dy < 0) discordant++;
+    }
+  }
+  const pairs = n * (n - 1) / 2;
+  return pairs === 0 ? 0 : (concordant - discordant) / pairs;
+}
+
 function evaluateThreshold(criterionName, value, threshold) {
   if (value === null || value === undefined) return null;
   const lowerIsBetter = { cv: true, mad: true, promptSwitch: true };
@@ -1054,6 +1074,42 @@ function computeFilterCriteriaForBench(benchmark, shot) {
   const results = {};
 
   for (const [name, cfg] of Object.entries(filterCriteria)) {
+    // Ordering consistency is a cross-model criterion (ranks models at each step)
+    if (name === "consistency") {
+      const windowSteps = getAllSteps().filter((s) => s >= cfg.minStep && s <= cfg.maxStep);
+      if (windowSteps.length < 2 || modelDirs.length < 2) {
+        results[name] = { value: null, pass: null };
+        continue;
+      }
+      // At each step, get each model's score
+      const stepRankings = [];
+      for (const step of windowSteps) {
+        const scores = [];
+        let valid = true;
+        for (const modelDir of modelDirs) {
+          const obj = models[modelDir].progress[String(step)]?.[benchmark]?.[shot]?.[mainMetric];
+          if (!obj) { valid = false; break; }
+          const rawScore = obj[currentPromptAgg];
+          if (rawScore == null) { valid = false; break; }
+          scores.push(applyNorm(rawScore, benchmark, null));
+        }
+        if (valid) stepRankings.push(scores);
+      }
+      if (stepRankings.length < 2) {
+        results[name] = { value: null, pass: null };
+        continue;
+      }
+      // Compute Kendall's Tau between successive step rankings
+      const taus = [];
+      for (let i = 0; i < stepRankings.length - 1; i++) {
+        const tau = computeKendallTau(stepRankings[i], stepRankings[i + 1]);
+        taus.push(tau != null ? tau : 0);
+      }
+      const value = taus.reduce((a, b) => a + b, 0) / taus.length;
+      results[name] = { value, pass: evaluateThreshold(name, value, cfg.threshold) };
+      continue;
+    }
+
     const perModelValues = [];
     for (const modelDir of modelDirs) {
       const progressData = models[modelDir].progress;
@@ -1159,7 +1215,7 @@ function renderFilterPanel() {
   const grid = document.getElementById("filter-criteria-grid");
   if (!grid) return;
   grid.innerHTML = "";
-  const criterionOrder = ["monotonicity", "snr", "cv", "mad", "promptSwitch", "nonRandom"];
+  const criterionOrder = ["monotonicity", "snr", "cv", "mad", "consistency", "promptSwitch", "nonRandom"];
   for (const name of criterionOrder) {
     const cfg = filterCriteria[name];
     const card = document.createElement("div");
@@ -1219,8 +1275,8 @@ function renderFilterTable() {
   if (!table) return;
   table.innerHTML = "";
   const ms = getMetricsSetup();
-  const criterionOrder = ["monotonicity", "snr", "cv", "mad", "promptSwitch", "nonRandom"];
-  const criterionHeaders = ["Mono", "SNR", "CV", "MAD", "Switch", "Non-Rand"];
+  const criterionOrder = ["monotonicity", "snr", "cv", "mad", "consistency", "promptSwitch", "nonRandom"];
+  const criterionHeaders = ["Mono", "SNR", "CV", "MAD", "Consist", "Switch", "Non-Rand"];
 
   const thead = document.createElement("thead");
   const headerRow = document.createElement("tr");
