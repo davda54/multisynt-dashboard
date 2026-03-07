@@ -1063,14 +1063,28 @@ function medianOf(arr) {
   return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
 }
 
+function filterDisplayScale(rawScore, benchmark) {
+  // Convert raw score to percentage scale (0-100) without baseline normalization,
+  // matching HPLT-E which always computes filter criteria on raw percentage scores.
+  const info = getMetricsSetup()[benchmark];
+  return info.metric_scale === "unit" ? rawScore * 100 : rawScore;
+}
+
+function filterNoiseScale(benchmark) {
+  // Scale factor to convert raw prompt_sd/prompt_mad to percentage scale
+  const info = getMetricsSetup()[benchmark];
+  return info.metric_scale === "unit" ? 100 : 1;
+}
+
 function computeFilterCriteriaForBench(benchmark, shot) {
   // Compute each criterion per model, then take the median across models (HPLT-E approach)
+  // All criteria are computed on raw percentage-scale scores (not baseline-normalized)
   const models = getModels();
   const modelDirs = Object.keys(models);
   const info = getMetricsSetup()[benchmark];
   if (!info) return {};
   const mainMetric = info.main_metric;
-  const noiseFactor = getNoiseScaleFactor(benchmark);
+  const noiseFactor = filterNoiseScale(benchmark);
   const results = {};
 
   for (const [name, cfg] of Object.entries(filterCriteria)) {
@@ -1081,7 +1095,6 @@ function computeFilterCriteriaForBench(benchmark, shot) {
         results[name] = { value: null, pass: null };
         continue;
       }
-      // At each step, get each model's score
       const stepRankings = [];
       for (const step of windowSteps) {
         const scores = [];
@@ -1091,7 +1104,7 @@ function computeFilterCriteriaForBench(benchmark, shot) {
           if (!obj) { valid = false; break; }
           const rawScore = obj[currentPromptAgg];
           if (rawScore == null) { valid = false; break; }
-          scores.push(applyNorm(rawScore, benchmark, null));
+          scores.push(filterDisplayScale(rawScore, benchmark));
         }
         if (valid) stepRankings.push(scores);
       }
@@ -1099,7 +1112,6 @@ function computeFilterCriteriaForBench(benchmark, shot) {
         results[name] = { value: null, pass: null };
         continue;
       }
-      // Compute Kendall's Tau between successive step rankings
       const taus = [];
       for (let i = 0; i < stepRankings.length - 1; i++) {
         const tau = computeKendallTau(stepRankings[i], stepRankings[i + 1]);
@@ -1123,7 +1135,7 @@ function computeFilterCriteriaForBench(benchmark, shot) {
         if (!obj) continue;
         const rawScore = obj[currentPromptAgg];
         if (rawScore == null) continue;
-        const score = applyNorm(rawScore, benchmark, null);
+        const score = filterDisplayScale(rawScore, benchmark);
         pairs.push({ step: s, score, rawScore, obj });
       }
       if (pairs.length < 3 && name !== "nonRandom") continue;
@@ -1148,8 +1160,8 @@ function computeFilterCriteriaForBench(benchmark, shot) {
           const scores = pairs.map((p) => p.score);
           const n = scores.length;
           const mean = scores.reduce((a, b) => a + b, 0) / n;
-          const sampleStd = n > 1 ? Math.sqrt(scores.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1)) : 0;
-          value = Math.abs(mean) > 1e-10 ? (sampleStd / Math.abs(mean)) * 100 : (sampleStd > 0 ? Infinity : 0);
+          const stdDev = n > 1 ? Math.sqrt(scores.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1)) : 0;
+          value = Math.abs(mean) > 1e-10 ? (stdDev / Math.abs(mean)) * 100 : (stdDev > 0 ? Infinity : 0);
           break;
         }
         case "mad": {
@@ -1172,8 +1184,8 @@ function computeFilterCriteriaForBench(benchmark, shot) {
         case "nonRandom": {
           const scores = pairs.map((p) => p.score);
           const maxScore = Math.max(...scores);
-          const normBaseline = applyNorm(info.random_baseline || 0, benchmark, null);
-          value = maxScore - normBaseline;
+          const baseline = filterDisplayScale(info.random_baseline || 0, benchmark);
+          value = maxScore - baseline;
           break;
         }
       }
