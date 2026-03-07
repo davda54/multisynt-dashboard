@@ -183,7 +183,7 @@ TASK_CONFIG = {
         "pretty_name": "TruthfulQA Gen (Spanish)",
         "main_metric": "bleu_max",
         "random_baseline": 0.0,
-        "max_performance": 1.0,
+        "max_performance": 100.0,
         "metric_scale": "unit",
         "category": "world knowledge",
     },
