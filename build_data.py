@@ -28,7 +28,7 @@ TASK_CONFIG = {
     # French tasks
     "fquad": {
         "pretty_name": "FQuAD",
-        "main_metric": "f1",
+        "main_metric": "exact",
         "random_baseline": 0.0,
         "max_performance": 1.0,
         "metric_scale": "unit",
@@ -157,7 +157,7 @@ TASK_CONFIG = {
     },
     "openbookqa_es": {
         "pretty_name": "OpenBookQA (Spanish)",
-        "main_metric": "acc_norm",
+        "main_metric": "acc",
         "random_baseline": 0.25,
         "max_performance": 1.0,
         "metric_scale": "unit",
@@ -181,7 +181,7 @@ TASK_CONFIG = {
     },
     "veritasqa_es_gen": {
         "pretty_name": "TruthfulQA Gen (Spanish)",
-        "main_metric": "bleu_acc",
+        "main_metric": "bleu_max",
         "random_baseline": 0.0,
         "max_performance": 1.0,
         "metric_scale": "unit",
@@ -213,7 +213,7 @@ TASK_CONFIG = {
     },
     "xquad_es": {
         "pretty_name": "XQuAD (Spanish)",
-        "main_metric": "f1",
+        "main_metric": "exact_match",
         "random_baseline": 0.0,
         "max_performance": 1.0,
         "metric_scale": "unit",
