@@ -110,15 +110,15 @@ TASK_CONFIG = {
     "copa_es": {
         "pretty_name": "COPA (Spanish)",
         "main_metric": "acc",
-        "random_baseline": 0.5,
+        "random_baseline": 0.25,
         "max_performance": 1.0,
         "metric_scale": "unit",
         "category": "language understanding",
     },
     "escola": {
         "pretty_name": "EsCoLA",
-        "main_metric": "acc",
-        "random_baseline": 0.5,
+        "main_metric": "mcc",
+        "random_baseline": 0.0,
         "max_performance": 1.0,
         "metric_scale": "unit",
         "category": "linguistic knowledge",
@@ -182,7 +182,7 @@ TASK_CONFIG = {
     "veritasqa_es_gen": {
         "pretty_name": "TruthfulQA Gen (Spanish)",
         "main_metric": "bleu_acc",
-        "random_baseline": 0.25,
+        "random_baseline": 0.0,
         "max_performance": 1.0,
         "metric_scale": "unit",
         "category": "world knowledge",
@@ -190,7 +190,7 @@ TASK_CONFIG = {
     "veritasqa_es_mc1": {
         "pretty_name": "TruthfulQA MC1 (Spanish)",
         "main_metric": "acc",
-        "random_baseline": 0.0,
+        "random_baseline": 0.243,
         "max_performance": 1.0,
         "metric_scale": "unit",
         "category": "world knowledge",
@@ -198,7 +198,7 @@ TASK_CONFIG = {
     "veritasqa_es_mc2": {
         "pretty_name": "TruthfulQA MC2 (Spanish)",
         "main_metric": "acc",
-        "random_baseline": 0.0,
+        "random_baseline": 0.154,
         "max_performance": 1.0,
         "metric_scale": "unit",
         "category": "world knowledge",
