@@ -1036,114 +1036,117 @@ function getNoiseScaleFactor(benchmark) {
   return info.metric_scale === "unit" ? 100 : 1;
 }
 
-function computeFilterCriteriaForBench(benchmark, shot, progressData) {
-  const steps = Object.keys(progressData)
-    .filter((k) => k !== "main" && !isNaN(Number(k)))
-    .map(Number).sort((a, b) => a - b);
+function medianOf(arr) {
+  if (arr.length === 0) return null;
+  const s = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
+}
+
+function computeFilterCriteriaForBench(benchmark, shot) {
+  // Compute each criterion per model, then take the median across models (HPLT-E approach)
+  const models = getModels();
+  const modelDirs = Object.keys(models);
   const info = getMetricsSetup()[benchmark];
   if (!info) return {};
   const mainMetric = info.main_metric;
-  const results = {};
   const noiseFactor = getNoiseScaleFactor(benchmark);
+  const results = {};
 
   for (const [name, cfg] of Object.entries(filterCriteria)) {
-    const windowSteps = steps.filter((s) => s >= cfg.minStep && s <= cfg.maxStep);
-    const pairs = [];
-    for (const s of windowSteps) {
-      const obj = progressData[String(s)]?.[benchmark]?.[shot]?.[mainMetric];
-      if (!obj) continue;
-      const rawScore = obj[currentPromptAgg];
-      if (rawScore == null) continue;
-      const score = applyNorm(rawScore, benchmark, null);
-      pairs.push({ step: s, score, rawScore, obj });
+    const perModelValues = [];
+    for (const modelDir of modelDirs) {
+      const progressData = models[modelDir].progress;
+      const steps = Object.keys(progressData)
+        .filter((k) => k !== "main" && !isNaN(Number(k)))
+        .map(Number).sort((a, b) => a - b);
+      const windowSteps = steps.filter((s) => s >= cfg.minStep && s <= cfg.maxStep);
+      const pairs = [];
+      for (const s of windowSteps) {
+        const obj = progressData[String(s)]?.[benchmark]?.[shot]?.[mainMetric];
+        if (!obj) continue;
+        const rawScore = obj[currentPromptAgg];
+        if (rawScore == null) continue;
+        const score = applyNorm(rawScore, benchmark, null);
+        pairs.push({ step: s, score, rawScore, obj });
+      }
+      if (pairs.length < 3 && name !== "nonRandom") continue;
+      if (pairs.length < 1) continue;
+
+      let value = null;
+      switch (name) {
+        case "monotonicity":
+          value = computeSpearmanRank(pairs.map((p) => p.step), pairs.map((p) => p.score));
+          break;
+        case "snr": {
+          const scores = pairs.map((p) => p.score);
+          const noiseVals = currentPromptAgg === "median"
+            ? pairs.map((p) => 1.4826 * (p.obj.prompt_mad || 0) * noiseFactor)
+            : pairs.map((p) => (p.obj.prompt_sd || 0) * noiseFactor);
+          const meanScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+          const meanNoise = noiseVals.reduce((a, b) => a + b, 0) / noiseVals.length;
+          value = meanNoise > 1e-10 ? meanScore / (meanNoise + 1e-8) : (meanScore > 0 ? Infinity : 0);
+          break;
+        }
+        case "cv": {
+          const scores = pairs.map((p) => p.score);
+          const n = scores.length;
+          const mean = scores.reduce((a, b) => a + b, 0) / n;
+          const sampleStd = n > 1 ? Math.sqrt(scores.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1)) : 0;
+          value = Math.abs(mean) > 1e-10 ? (sampleStd / Math.abs(mean)) * 100 : (sampleStd > 0 ? Infinity : 0);
+          break;
+        }
+        case "mad": {
+          const mads = pairs.map((p) => p.obj.prompt_mad).filter((v) => v != null);
+          if (mads.length === 0) break;
+          const scaled = mads.map((m) => m * noiseFactor).sort((a, b) => a - b);
+          value = scaled.length % 2 === 0
+            ? (scaled[scaled.length / 2 - 1] + scaled[scaled.length / 2]) / 2
+            : scaled[Math.floor(scaled.length / 2)];
+          break;
+        }
+        case "promptSwitch": {
+          const indices = pairs.map((p) => p.obj.max_prompt_idx);
+          if (indices.some((v) => v == null)) break;
+          let switches = 0;
+          for (let i = 1; i < indices.length; i++) if (indices[i] !== indices[i - 1]) switches++;
+          value = indices.length > 1 ? (switches / (indices.length - 1)) * 100 : 0;
+          break;
+        }
+        case "nonRandom": {
+          const scores = pairs.map((p) => p.score);
+          const maxScore = Math.max(...scores);
+          const normBaseline = applyNorm(info.random_baseline || 0, benchmark, null);
+          value = maxScore - normBaseline;
+          break;
+        }
+      }
+      if (value != null) perModelValues.push(value);
     }
-    if (pairs.length < 3 && name !== "nonRandom") {
-      results[name] = { value: null, pass: null };
-      continue;
-    }
-    if (pairs.length < 1) {
-      results[name] = { value: null, pass: null };
-      continue;
-    }
-    let value = null;
-    switch (name) {
-      case "monotonicity":
-        value = computeSpearmanRank(pairs.map((p) => p.step), pairs.map((p) => p.score));
-        break;
-      case "snr": {
-        const scores = pairs.map((p) => p.score);
-        const noiseVals = currentPromptAgg === "median"
-          ? pairs.map((p) => 1.4826 * (p.obj.prompt_mad || 0) * noiseFactor)
-          : pairs.map((p) => (p.obj.prompt_sd || 0) * noiseFactor);
-        const meanScore = scores.reduce((a, b) => a + b, 0) / scores.length;
-        const meanNoise = noiseVals.reduce((a, b) => a + b, 0) / noiseVals.length;
-        value = meanNoise > 1e-10 ? meanScore / (meanNoise + 1e-8) : (meanScore > 0 ? Infinity : 0);
-        break;
-      }
-      case "cv": {
-        const scores = pairs.map((p) => p.score);
-        const n = scores.length;
-        const mean = scores.reduce((a, b) => a + b, 0) / n;
-        const sampleStd = n > 1 ? Math.sqrt(scores.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1)) : 0;
-        value = Math.abs(mean) > 1e-10 ? (sampleStd / Math.abs(mean)) * 100 : (sampleStd > 0 ? Infinity : 0);
-        break;
-      }
-      case "mad": {
-        const mads = pairs.map((p) => p.obj.prompt_mad).filter((v) => v != null);
-        if (mads.length === 0) { value = null; break; }
-        const scaled = mads.map((m) => m * noiseFactor).sort((a, b) => a - b);
-        value = scaled.length % 2 === 0
-          ? (scaled[scaled.length / 2 - 1] + scaled[scaled.length / 2]) / 2
-          : scaled[Math.floor(scaled.length / 2)];
-        break;
-      }
-      case "promptSwitch": {
-        const indices = pairs.map((p) => p.obj.max_prompt_idx);
-        if (indices.some((v) => v == null)) { value = null; break; }
-        let switches = 0;
-        for (let i = 1; i < indices.length; i++) if (indices[i] !== indices[i - 1]) switches++;
-        value = indices.length > 1 ? (switches / (indices.length - 1)) * 100 : 0;
-        break;
-      }
-      case "nonRandom": {
-        const scores = pairs.map((p) => p.score);
-        const maxScore = Math.max(...scores);
-        const normBaseline = applyNorm(info.random_baseline || 0, benchmark, null);
-        value = maxScore - normBaseline;
-        break;
-      }
-    }
-    results[name] = { value, pass: evaluateThreshold(name, value, cfg.threshold) };
+
+    const medianValue = medianOf(perModelValues);
+    results[name] = { value: medianValue, pass: evaluateThreshold(name, medianValue, cfg.threshold) };
   }
   return results;
 }
 
 function runFilter() {
   if (currentTaskSelection !== "__filtered__") return;
-  const models = getModels();
 
-  // Compute criteria for each model separately, then a benchmark passes if
-  // it passes for ALL models (conservative: only keep tasks reliable across all)
+  // Compute criteria per benchmark as the median across all models (HPLT-E approach)
   filterResults = {};
-  for (const [modelDir, modelData] of Object.entries(models)) {
-    filterResults[modelDir] = {};
-    for (const bench of allFilterBenchmarks) {
-      filterResults[modelDir][bench] = computeFilterCriteriaForBench(bench, currentShot, modelData.progress);
-    }
+  for (const bench of allFilterBenchmarks) {
+    filterResults[bench] = computeFilterCriteriaForBench(bench, currentShot);
   }
 
-  // A benchmark passes if it passes in ALL models
   checkedTasks = new Set();
   for (const bench of allFilterBenchmarks) {
     let passes = true;
-    for (const modelDir of Object.keys(models)) {
-      const res = filterResults[modelDir]?.[bench] || {};
-      for (const [name, cfg] of Object.entries(filterCriteria)) {
-        if (!cfg.enabled) continue;
-        const r = res[name];
-        if (r && r.pass === false) { passes = false; break; }
-      }
-      if (!passes) break;
+    const res = filterResults[bench] || {};
+    for (const [name, cfg] of Object.entries(filterCriteria)) {
+      if (!cfg.enabled) continue;
+      const r = res[name];
+      if (r && r.pass === false) { passes = false; break; }
     }
     if (passes) checkedTasks.add(bench);
   }
@@ -1216,43 +1219,23 @@ function renderFilterTable() {
   if (!table) return;
   table.innerHTML = "";
   const ms = getMetricsSetup();
-  const modelDirs = Object.keys(getModels());
   const criterionOrder = ["monotonicity", "snr", "cv", "mad", "promptSwitch", "nonRandom"];
   const criterionHeaders = ["Mono", "SNR", "CV", "MAD", "Switch", "Non-Rand"];
 
   const thead = document.createElement("thead");
   const headerRow = document.createElement("tr");
   const benchTh = document.createElement("th"); benchTh.textContent = "Benchmark"; headerRow.appendChild(benchTh);
-  // For each model, add criterion columns
-  for (const modelDir of modelDirs) {
-    const modelName = getModels()[modelDir].display_name;
-    for (let i = 0; i < criterionOrder.length; i++) {
-      const cfg = filterCriteria[criterionOrder[i]];
-      const th = document.createElement("th");
-      th.textContent = criterionHeaders[i];
-      th.title = modelName;
-      if (!cfg.enabled) th.style.opacity = "0.4";
-      if (cfg.tooltip) {
-        attachTooltip(th, () => ({ title: cfg.label + " (" + modelName + ")", body: cfg.tooltip, footer: "" }));
-      }
-      headerRow.appendChild(th);
+  for (let i = 0; i < criterionOrder.length; i++) {
+    const cfg = filterCriteria[criterionOrder[i]];
+    const th = document.createElement("th");
+    th.textContent = criterionHeaders[i];
+    if (!cfg.enabled) th.style.opacity = "0.4";
+    if (cfg.tooltip) {
+      attachTooltip(th, () => ({ title: cfg.label + " (median across models)", body: cfg.tooltip, footer: "" }));
     }
+    headerRow.appendChild(th);
   }
   thead.appendChild(headerRow);
-
-  // Add model name sub-header if multiple models
-  if (modelDirs.length > 1) {
-    const subRow = document.createElement("tr");
-    const emptyTh = document.createElement("th"); subRow.appendChild(emptyTh);
-    for (const modelDir of modelDirs) {
-      const th = document.createElement("th");
-      th.colSpan = criterionOrder.length;
-      th.textContent = getModels()[modelDir].display_name;
-      th.style.borderBottom = "1px solid var(--border)";
-      subRow.appendChild(th);
-    }
-    thead.appendChild(subRow);
-  }
   table.appendChild(thead);
 
   const sorted = [...allFilterBenchmarks].sort((a, b) =>
@@ -1267,20 +1250,18 @@ function renderFilterTable() {
     const nameTd = document.createElement("td");
     nameTd.textContent = ms[bench]?.pretty_name || bench;
     tr.appendChild(nameTd);
-    for (const modelDir of modelDirs) {
-      const res = filterResults[modelDir]?.[bench] || {};
-      for (const name of criterionOrder) {
-        const cfg = filterCriteria[name];
-        const r = res[name];
-        const td = document.createElement("td");
-        if (!r || r.value === null || r.value === undefined) {
-          td.className = "na"; td.textContent = "N/A";
-        } else {
-          td.textContent = r.value === Infinity ? "\u221E" : r.value.toFixed(2);
-          td.className = cfg.enabled ? (r.pass ? "pass" : "fail") : "na";
-        }
-        tr.appendChild(td);
+    const res = filterResults[bench] || {};
+    for (const name of criterionOrder) {
+      const cfg = filterCriteria[name];
+      const r = res[name];
+      const td = document.createElement("td");
+      if (!r || r.value === null || r.value === undefined) {
+        td.className = "na"; td.textContent = "N/A";
+      } else {
+        td.textContent = r.value === Infinity ? "\u221E" : r.value.toFixed(2);
+        td.className = cfg.enabled ? (r.pass ? "pass" : "fail") : "na";
       }
+      tr.appendChild(td);
     }
     tbody.appendChild(tr);
   }
