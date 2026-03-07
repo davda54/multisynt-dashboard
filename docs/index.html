@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multilingual Training Progress</title>
+    <title>MultiSynt Evaluation Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -12,8 +12,7 @@
 </head>
 <body>
     <header>
-        <h1>Multilingual Training Progress</h1>
-        <p class="subtitle">Tracking language model performance across training checkpoints</p>
+        <h1>MultiSynt Evaluation Dashboard</h1>
     </header>
 
     <main>
@@ -25,10 +24,10 @@
             <div class="control-group">
                 <label for="task-select">Task:</label>
                 <select id="task-select">
-                    <option value="__filtered__">Signal-filtered tasks</option>
-                    <option value="__all_macro__">All (macro-average)</option>
-                    <option value="__all__">All (micro-average)</option>
-                    <option value="__custom__" hidden>Custom (micro-average)</option>
+                    <option value="__filtered__" title="Micro-average over tasks passing HPLT-E signal-quality criteria (monotonicity, SNR, CV, prompt sensitivity). Excludes noisy or unreliable benchmarks.">Signal-filtered tasks</option>
+                    <option value="__all_macro__" title="Scores are first averaged within each task category, then averaged across categories. This gives equal weight to each category regardless of how many tasks it contains.">All (group-average)</option>
+                    <option value="__all__" title="Simple average across all tasks. Each task contributes equally regardless of category.">All (task-average)</option>
+                    <option value="__custom__" hidden>Custom (task-average)</option>
                 </select>
             </div>
 
@@ -63,7 +62,16 @@
                 <label for="metric-select">Metric:</label>
                 <select id="metric-select" class="control-select"></select>
             </div>
+
+            <div class="control-group">
+                <label class="toggle-label">
+                    <input type="checkbox" id="prompt-dev-toggle" checked>
+                    <span>Prompt deviation</span>
+                </label>
+            </div>
         </div>
+
+        <div id="task-description" class="task-description" style="display:none;"></div>
 
         <div id="filter-panel" class="filter-panel" style="display:none;">
             <div class="filter-panel-header">

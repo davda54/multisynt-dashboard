@@ -32,7 +32,7 @@ TASK_CONFIG = {
         "random_baseline": 0.0,
         "max_performance": 1.0,
         "metric_scale": "unit",
-        "category": "question answering",
+        "category": "language understanding",
     },
     "frabelebele": {
         "pretty_name": "Belebele (French)",
@@ -105,7 +105,7 @@ TASK_CONFIG = {
         "random_baseline": 0.0,
         "max_performance": 100.0,
         "metric_scale": "percent",
-        "category": "generation",
+        "category": "generation & summarization",
     },
     "copa_es": {
         "pretty_name": "COPA (Spanish)",
@@ -153,7 +153,7 @@ TASK_CONFIG = {
         "random_baseline": 0.0,
         "max_performance": 1.0,
         "metric_scale": "unit",
-        "category": "reasoning",
+        "category": "math reasoning",
     },
     "openbookqa_es": {
         "pretty_name": "OpenBookQA (Spanish)",
@@ -217,7 +217,7 @@ TASK_CONFIG = {
         "random_baseline": 0.0,
         "max_performance": 1.0,
         "metric_scale": "unit",
-        "category": "question answering",
+        "category": "language understanding",
     },
     "xstorycloze_es": {
         "pretty_name": "XStoryCloze (Spanish)",

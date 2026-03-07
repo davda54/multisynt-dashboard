@@ -10,7 +10,7 @@ let currentNormalization = "baseline";
 let currentMetric = null;
 let checkedTasks = new Set();
 const showStderr = true;
-const showPromptDeviation = true;
+let showPromptDeviation = true;
 
 // HPLT-E quality filter state
 let filterCriteria = {
@@ -20,17 +20,17 @@ let filterCriteria = {
     tooltip: "Spearman rank correlation between checkpoint step number and benchmark score. Measures whether performance improves monotonically during training. Default threshold: \u2265 0.5.",
   },
   snr: {
-    enabled: true, minStep: 5000, maxStep: 50000, threshold: 3.0, direction: ">=",
+    enabled: false, minStep: 5000, maxStep: 50000, threshold: 3.0, direction: ">=",
     label: "SNR", description: "Signal-to-noise ratio",
     tooltip: "Ratio of mean score to mean prompt standard deviation across checkpoints. Measures whether the benchmark signal is distinguishable from prompt-induced noise. Default threshold: \u2265 3.",
   },
   cv: {
-    enabled: true, minStep: 5000, maxStep: 50000, threshold: 15.0, direction: "<=",
+    enabled: false, minStep: 5000, maxStep: 50000, threshold: 15.0, direction: "<=",
     label: "CV", description: "Coefficient of variation (%)",
     tooltip: "Standard deviation divided by mean of scores across checkpoints, as percentage. Measures score stability during training. Default threshold: \u2264 15%.",
   },
   mad: {
-    enabled: true, minStep: 5000, maxStep: 50000, threshold: 5.0, direction: "<=",
+    enabled: false, minStep: 5000, maxStep: 50000, threshold: 5.0, direction: "<=",
     label: "Prompt Sensitivity", description: "Median MAD across prompts",
     tooltip: "Median Absolute Deviation of scores across prompt variants, taken as the median over all checkpoints. Default threshold: \u2264 5.",
   },
@@ -195,7 +195,7 @@ function toDisplayScale(value, benchmark, metric) {
   return scale === "unit" ? value * 100 : value;
 }
 
-function scaleStderr(se, benchmark, metric, allRaw) {
+function scaleStderr(se, benchmark, metric) {
   if (se == null) return undefined;
   if (currentNormalization === "none") return toDisplayScale(se, benchmark, metric);
   if (currentNormalization === "baseline") {
@@ -492,6 +492,11 @@ function bindEventListeners() {
     renderChart();
   });
 
+  document.getElementById("prompt-dev-toggle").addEventListener("change", (e) => {
+    showPromptDeviation = e.target.checked;
+    renderChart();
+  });
+
   document.getElementById("task-select").addEventListener("change", (e) => {
     currentTaskSelection = e.target.value;
     if (currentTaskSelection === "__filtered__") {
@@ -696,13 +701,17 @@ function attachTooltip(element, contentFn) {
 const ALL_SHOTS = ["0", "1", "5"];
 
 function getPlotlyLayout(overrides) {
-  return Object.assign({
+  const result = Object.assign({
     font: { family: "Inter, system-ui, sans-serif", size: 13 },
     paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
     margin: { l: 60, r: 20, t: 50, b: 60 },
     autosize: true, hovermode: "closest",
-    xaxis: { automargin: true },
   }, overrides);
+  // Ensure axes have no frame lines and use visible gridlines
+  const axisDefaults = { showline: false, zeroline: false, gridcolor: "#d8dce3" };
+  result.xaxis = Object.assign({ automargin: true }, axisDefaults, result.xaxis);
+  result.yaxis = Object.assign({}, axisDefaults, result.yaxis);
+  return result;
 }
 
 function plotChart(traces, layout) {
@@ -727,13 +736,49 @@ function onChartHover(data) {
   let body;
   if (isAggregateSelection(currentTaskSelection)) {
     const countStr = cd && typeof cd === "object" ? cd.count : "";
-    const unit = isMacroSelection() ? "categories" : "tasks";
+    const unit = isMacroSelection() ? "groups" : "tasks";
     body = "Average: " + scoreStr + seStr + (countStr ? " (" + countStr + " " + unit + ")" : "");
   } else {
     body = "Score: " + scoreStr + seStr;
   }
   const title = (pt.data.name || "") + " \u2014 Step " + pt.x;
   showTooltip(data.event, title, body, "", "");
+}
+
+function updateDescription() {
+  const descEl = document.getElementById("task-description");
+  if (!descEl) return;
+  const sel = currentTaskSelection;
+  if (isAggregateSelection(sel)) {
+    descEl.textContent = getAggregateDescription();
+    descEl.style.display = "block";
+  } else {
+    descEl.style.display = "none";
+  }
+}
+
+function getAggregateDescription() {
+  const sel = currentTaskSelection;
+  const count = sel === "__custom__" ? checkedTasks.size : getBenchmarksForSelection(sel).filter((b) => checkedTasks.has(b)).length;
+  const macro = isMacroSelection();
+  let scope = "";
+  if (sel === "__all_macro__") {
+    const groups = getMacroGroups(checkedTasks);
+    scope = "all " + count + " tasks (" + groups.length + " categories, group-averaged)";
+  } else if (sel === "__all__") scope = "all " + count + " tasks (task-averaged)";
+  else if (sel === "__filtered__") scope = count + " signal-filtered tasks (task-averaged, HPLT-E criteria)";
+  else if (sel === "__custom__") scope = count + " selected tasks (task-averaged)";
+  else if (sel.startsWith("__cat__")) scope = count + " tasks in the \"" + sel.slice(7) + "\" category";
+
+  const avgDesc = macro
+    ? "Scores are first averaged within each task category, then averaged across categories. This gives equal weight to each category regardless of how many tasks it contains. "
+    : "";
+  const normDescs = {
+    none: "Scores are shown on their native metric scales without normalization, then averaged.",
+    baseline: "Each task score is normalized to a 0\u2013100 scale where 0 = random baseline performance and 100 = perfect score, then averaged across tasks. This accounts for different chance levels across tasks (e.g. 25% for 4-choice QA vs. 50% for binary classification).",
+  };
+  const normDesc = normDescs[currentNormalization] || "";
+  return "Aggregate score across " + scope + ". " + avgDesc + normDesc;
 }
 
 function renderChart() {
@@ -744,6 +789,8 @@ function renderChart() {
   } else if (getMetricsSetup()[sel]) {
     populateMetricSelector([sel]);
   }
+  // Update description
+  updateDescription();
   // Show/hide filter
   if (sel === "__filtered__") {
     if (allFilterBenchmarks.size === 0) allFilterBenchmarks = new Set(Object.keys(getMetricsSetup()));
@@ -824,7 +871,7 @@ function renderAggregateProgressChart() {
         const raw = getScore(modelData.progress, step, bench, currentShot);
         if (raw === undefined) return undefined;
         const score = applyNorm(raw, bench, null);
-        const se = wantSE ? scaleStderr(getCombinedSE(modelData.progress, step, bench, currentShot), bench, undefined, null) : undefined;
+        const se = wantSE ? scaleStderr(getCombinedSE(modelData.progress, step, bench, currentShot), bench) : undefined;
         return { score, stderr: se };
       }, macro);
     });
@@ -845,16 +892,16 @@ function renderAggregateProgressChart() {
     });
   }
 
-  const avgLabel = macro ? "macro-avg" : "micro-avg";
+  const avgLabel = macro ? "group-avg" : "task-avg";
   const taskLabel = currentTaskSelection === "__filtered__"
     ? checkedTasks.size + " signal-filtered tasks"
     : "all tasks";
   const layout = getPlotlyLayout({
     title: { text: currentLang + " \u2014 " + taskLabel + " \u2014 " + avgLabel + " (" + currentShot + "-shot)", font: { size: 16 } },
-    xaxis: { title: "training step", dtick: 5000, gridcolor: "#f0f0f0" },
-    yaxis: { title: getNormYLabel(), range: yRange, gridcolor: "#f0f0f0" },
+    xaxis: { title: "training step", dtick: 5000 },
+    yaxis: { title: getNormYLabel(), range: yRange },
     legend: {
-      orientation: "h", x: 0.01, y: 0.99, xanchor: "left", yanchor: "bottom",
+      x: 0.01, y: 0.99, xanchor: "left", yanchor: "top",
       bgcolor: "rgba(255,255,255,0.8)", bordercolor: "#e2e8f0", borderwidth: 1,
     },
   });
@@ -897,7 +944,7 @@ function renderSingleProgressChart(benchmark) {
     });
     const ses = wantSE ? steps.map((s) => {
       const se = getCombinedSE(modelData.progress, s, benchmark, currentShot, metric);
-      return scaleStderr(se, benchmark, metric, null);
+      return scaleStderr(se, benchmark, metric);
     }) : null;
     if (wantSE && ses) {
       const band = makeBandTrace(steps, ys, ses, color);
@@ -915,10 +962,10 @@ function renderSingleProgressChart(benchmark) {
   const yLabel = currentNormalization === "none" ? getMetricYLabel(benchmark, metric) : getNormYLabel();
   const layout = getPlotlyLayout({
     title: { text: currentLang + " \u2014 " + info.pretty_name + " (" + currentShot + "-shot)", font: { size: 16 } },
-    xaxis: { title: "training step", dtick: 5000, gridcolor: "#f0f0f0" },
-    yaxis: { title: yLabel, range: yRange, gridcolor: "#f0f0f0" },
+    xaxis: { title: "training step", dtick: 5000 },
+    yaxis: { title: yLabel, range: yRange },
     legend: {
-      orientation: "h", x: 0.01, y: 0.99, xanchor: "left", yanchor: "bottom",
+      x: 0.01, y: 0.99, xanchor: "left", yanchor: "top",
       bgcolor: "rgba(255,255,255,0.8)", bordercolor: "#e2e8f0", borderwidth: 1,
     },
   });
