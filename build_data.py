@@ -184,7 +184,7 @@ TASK_CONFIG = {
         "main_metric": "bleu_max",
         "random_baseline": 0.0,
         "max_performance": 100.0,
-        "metric_scale": "unit",
+        "metric_scale": "percent",
         "category": "world knowledge",
     },
     "veritasqa_es_mc1": {
