@@ -22,12 +22,12 @@ let filterCriteria = {
   snr: {
     enabled: false, minStep: 5000, maxStep: 50000, threshold: 3.0, direction: ">=",
     label: "SNR", description: "Signal-to-noise ratio",
-    tooltip: "Ratio of mean score to mean prompt standard deviation across checkpoints. Measures whether the benchmark signal is distinguishable from prompt-induced noise. Default threshold: \u2265 3.",
+    tooltip: "Ratio of mean signal (score minus random baseline) to mean prompt standard deviation across checkpoints. Measures whether the benchmark signal is distinguishable from prompt-induced noise. Note: unlike the original HPLT-E implementation, the random baseline is subtracted from the signal so that chance-level performance yields SNR \u2248 0. Default threshold: \u2265 3.",
   },
   cv: {
     enabled: false, minStep: 5000, maxStep: 50000, threshold: 15.0, direction: "<=",
     label: "CV", description: "Coefficient of variation (%)",
-    tooltip: "Standard deviation divided by mean of scores across checkpoints, as percentage. Measures score stability during training. Default threshold: \u2264 15%.",
+    tooltip: "Standard deviation divided by mean signal (score minus random baseline) across checkpoints, as percentage. Measures score stability relative to above-chance performance. Note: unlike the original HPLT-E implementation, the random baseline is subtracted from the mean so that chance-level performance yields high CV. Default threshold: \u2264 15%.",
   },
   mad: {
     enabled: false, minStep: 5000, maxStep: 50000, threshold: 5.0, direction: "<=",
@@ -1151,17 +1151,20 @@ function computeFilterCriteriaForBench(benchmark, shot) {
           const noiseVals = currentPromptAgg === "median"
             ? pairs.map((p) => 1.4826 * (p.obj.prompt_mad || 0) * noiseFactor)
             : pairs.map((p) => (p.obj.prompt_sd || 0) * noiseFactor);
-          const meanScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+          const baseline = filterDisplayScale(info.random_baseline || 0, benchmark);
+          const meanSignal = scores.reduce((a, b) => a + b, 0) / scores.length - baseline;
           const meanNoise = noiseVals.reduce((a, b) => a + b, 0) / noiseVals.length;
-          value = meanNoise > 1e-10 ? meanScore / (meanNoise + 1e-8) : (meanScore > 0 ? Infinity : 0);
+          value = meanNoise > 1e-10 ? meanSignal / (meanNoise + 1e-8) : (meanSignal > 0 ? Infinity : 0);
           break;
         }
         case "cv": {
           const scores = pairs.map((p) => p.score);
           const n = scores.length;
           const mean = scores.reduce((a, b) => a + b, 0) / n;
+          const baseline = filterDisplayScale(info.random_baseline || 0, benchmark);
+          const meanSignal = mean - baseline;
           const stdDev = n > 1 ? Math.sqrt(scores.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1)) : 0;
-          value = Math.abs(mean) > 1e-10 ? (stdDev / Math.abs(mean)) * 100 : (stdDev > 0 ? Infinity : 0);
+          value = Math.abs(meanSignal) > 1e-10 ? (stdDev / Math.abs(meanSignal)) * 100 : (stdDev > 0 ? Infinity : 0);
           break;
         }
         case "mad": {
