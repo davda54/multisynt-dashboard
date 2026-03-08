@@ -27,7 +27,7 @@ let filterCriteria = {
   cv: {
     enabled: false, minStep: 5000, maxStep: 50000, threshold: 15.0, direction: "<=",
     label: "CV", description: "Coefficient of variation (%)",
-    tooltip: "Standard deviation divided by mean signal (score minus random baseline) across checkpoints, as percentage. Measures score stability relative to above-chance performance. Note: unlike the original HPLT-E implementation, the random baseline is subtracted from the mean so that chance-level performance yields high CV. Default threshold: \u2264 15%.",
+    tooltip: "Standard deviation divided by mean score across checkpoints, as percentage. Measures score stability during training, following the original HPLT-E implementation. Default threshold: \u2264 15%.",
   },
   mad: {
     enabled: false, minStep: 5000, maxStep: 50000, threshold: 5.0, direction: "<=",
@@ -166,7 +166,8 @@ function getScore(progressData, step, bench, shot, metric) {
   metric = metric || getMetricsSetup()[bench]?.main_metric;
   const obj = progressData[step]?.[bench]?.[shot]?.[metric];
   if (obj === undefined || obj === null) return undefined;
-  if (typeof obj === "number") return obj;
+  if (typeof obj === "number") return currentPromptAgg === "stdev" ? 0 : obj;
+  if (currentPromptAgg === "stdev") return obj.prompt_sd != null ? obj.prompt_sd : undefined;
   return obj[currentPromptAgg];
 }
 
@@ -188,6 +189,7 @@ function getPromptSE(progressData, step, bench, shot, metric) {
 }
 
 function getCombinedSE(progressData, step, bench, shot, metric) {
+  if (currentPromptAgg === "stdev") return undefined;
   const sampSe = showStderr ? getStderr(progressData, step, bench, shot, metric) : undefined;
   const promptSe = showPromptDeviation ? getPromptSE(progressData, step, bench, shot, metric) : undefined;
   if (sampSe == null && promptSe == null) return undefined;
@@ -202,13 +204,7 @@ function toDisplayScale(value, benchmark, metric) {
 
 function scaleStderr(se, benchmark, metric) {
   if (se == null) return undefined;
-  if (currentNormalization === "none") return toDisplayScale(se, benchmark, metric);
-  if (currentNormalization === "baseline") {
-    const info = getMetricsSetup()[benchmark];
-    const range = info.max_performance - info.random_baseline;
-    return range === 0 ? 0 : (se / range) * 100;
-  }
-  return undefined;
+  return toDisplayScale(se, benchmark, metric);
 }
 
 // ============================================================
@@ -217,18 +213,20 @@ function scaleStderr(se, benchmark, metric) {
 
 function baselineNorm(raw, benchmark) {
   const info = getMetricsSetup()[benchmark];
-  const base = info.random_baseline, max = info.max_performance;
-  return max === base ? 0 : ((raw - base) / (max - base)) * 100;
+  const base = info.random_baseline;
+  return Math.max(0, toDisplayScale(raw, benchmark) - toDisplayScale(base, benchmark));
 }
 
 function applyNorm(raw, benchmark, allRaw, metric) {
+  if (currentPromptAgg === "stdev") return toDisplayScale(raw, benchmark, metric);
   if (currentNormalization === "none") return toDisplayScale(raw, benchmark, metric);
   if (currentNormalization === "baseline") return baselineNorm(raw, benchmark);
   return toDisplayScale(raw, benchmark, metric);
 }
 
 function getNormYLabel() {
-  if (currentNormalization === "baseline") return "normalized score (baseline=0, perfect=100)";
+  if (currentPromptAgg === "stdev") return "prompt stdev (0\u2013100)";
+  if (currentNormalization === "baseline") return "score \u2212 random baseline";
   return "score (0\u2013100)";
 }
 
@@ -238,7 +236,7 @@ function getMetricYLabel(benchmark, metric) {
 }
 
 function autoSetNormalization() {
-  currentNormalization = isAggregateSelection(currentTaskSelection) ? "baseline" : "none";
+  currentNormalization = "baseline";
   document.getElementById("norm-select").value = currentNormalization;
 }
 
@@ -780,7 +778,7 @@ function getAggregateDescription() {
     : "";
   const normDescs = {
     none: "Scores are shown on their native metric scales without normalization, then averaged.",
-    baseline: "Each task score is normalized to a 0\u2013100 scale where 0 = random baseline performance and 100 = perfect score, then averaged across tasks. This accounts for different chance levels across tasks (e.g. 25% for 4-choice QA vs. 50% for binary classification).",
+    baseline: "Each task score has the random baseline subtracted (clamped at 0), then averaged across tasks. This accounts for different chance levels across tasks (e.g. 25% for 4-choice QA vs. 50% for binary classification).",
   };
   const normDesc = normDescs[currentNormalization] || "";
   return "Aggregate score across " + scope + ". " + avgDesc + normDesc;
@@ -964,7 +962,7 @@ function renderSingleProgressChart(benchmark) {
     });
   }
 
-  const yLabel = currentNormalization === "none" ? getMetricYLabel(benchmark, metric) : getNormYLabel();
+  const yLabel = currentPromptAgg === "stdev" ? getNormYLabel() : (currentNormalization === "none" ? getMetricYLabel(benchmark, metric) : getNormYLabel());
   const layout = getPlotlyLayout({
     title: { text: currentLang + " \u2014 " + info.pretty_name + " (" + currentShot + "-shot)", font: { size: 16 } },
     xaxis: { title: "training step", dtick: 5000 },
@@ -1152,7 +1150,7 @@ function computeFilterCriteriaForBench(benchmark, shot) {
             ? pairs.map((p) => 1.4826 * (p.obj.prompt_mad || 0) * noiseFactor)
             : pairs.map((p) => (p.obj.prompt_sd || 0) * noiseFactor);
           const baseline = filterDisplayScale(info.random_baseline || 0, benchmark);
-          const meanSignal = scores.reduce((a, b) => a + b, 0) / scores.length - baseline;
+          const meanSignal = Math.max(0, scores.reduce((a, b) => a + b, 0) / scores.length - baseline);
           const meanNoise = noiseVals.reduce((a, b) => a + b, 0) / noiseVals.length;
           value = meanNoise > 1e-10 ? meanSignal / (meanNoise + 1e-8) : (meanSignal > 0 ? Infinity : 0);
           break;
@@ -1161,10 +1159,8 @@ function computeFilterCriteriaForBench(benchmark, shot) {
           const scores = pairs.map((p) => p.score);
           const n = scores.length;
           const mean = scores.reduce((a, b) => a + b, 0) / n;
-          const baseline = filterDisplayScale(info.random_baseline || 0, benchmark);
-          const meanSignal = mean - baseline;
           const stdDev = n > 1 ? Math.sqrt(scores.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1)) : 0;
-          value = Math.abs(meanSignal) > 1e-10 ? (stdDev / Math.abs(meanSignal)) * 100 : (stdDev > 0 ? Infinity : 0);
+          value = Math.abs(mean) > 1e-10 ? (stdDev / Math.abs(mean)) * 100 : (stdDev > 0 ? Infinity : 0);
           break;
         }
         case "mad": {
@@ -1188,7 +1184,7 @@ function computeFilterCriteriaForBench(benchmark, shot) {
           const scores = pairs.map((p) => p.score);
           const maxScore = Math.max(...scores);
           const baseline = filterDisplayScale(info.random_baseline || 0, benchmark);
-          value = maxScore - baseline;
+          value = Math.max(0, maxScore - baseline);
           break;
         }
       }
