@@ -52,7 +52,7 @@ let filterCriteria = {
 };
 let filterResults = {}; // {bench: {criterionName: {value, pass}}}
 let allFilterBenchmarks = new Set();
-let filterTableExpanded = false;
+
 
 const MODEL_COLORS = [
   "#6366f1", "#f43f5e", "#10b981", "#f59e0b", "#8b5cf6",
@@ -1337,24 +1337,23 @@ function renderFilterTable() {
 }
 
 let filterPanelRendered = false;
+let filterPanelExpanded = false;
 
 function showFilterUI() {
   const panel = document.getElementById("filter-panel");
-  const tableContainer = document.getElementById("filter-table-container");
   if (panel) panel.style.display = "";
-  if (tableContainer) tableContainer.style.display = "";
   const heading = document.querySelector("#task-checkboxes .checkbox-header h3");
   if (heading) heading.textContent = "Tasks eligible for quality filtering";
   if (!filterPanelRendered) {
     renderFilterPanel();
     filterPanelRendered = true;
-    const toggleBtn = document.getElementById("filter-table-toggle");
-    const tableContent = document.getElementById("filter-table-content");
-    if (toggleBtn && tableContent) {
+    const toggleBtn = document.getElementById("filter-panel-toggle");
+    const panelContent = document.getElementById("filter-panel-content");
+    if (toggleBtn && panelContent) {
       toggleBtn.onclick = () => {
-        filterTableExpanded = !filterTableExpanded;
-        tableContent.style.display = filterTableExpanded ? "" : "none";
-        toggleBtn.textContent = filterTableExpanded ? "Hide diagnostics" : "Show diagnostics";
+        filterPanelExpanded = !filterPanelExpanded;
+        panelContent.style.display = filterPanelExpanded ? "" : "none";
+        toggleBtn.textContent = filterPanelExpanded ? "Hide signal criteria" : "Show signal criteria";
       };
     }
   }
@@ -1362,9 +1361,7 @@ function showFilterUI() {
 
 function hideFilterUI() {
   const panel = document.getElementById("filter-panel");
-  const tableContainer = document.getElementById("filter-table-container");
   if (panel) panel.style.display = "none";
-  if (tableContainer) tableContainer.style.display = "none";
   filterPanelRendered = false;
   const heading = document.querySelector("#task-checkboxes .checkbox-header h3");
   if (heading) heading.textContent = "Tasks included in aggregation";
