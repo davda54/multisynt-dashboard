@@ -21,27 +21,27 @@ let filterCriteria = {
   },
   snr: {
     enabled: false, minStep: 5000, maxStep: 50000, threshold: 3.0, direction: ">=",
-    label: "Signal-to-noise Ratio", description: "Signal-to-noise ratio",
+    label: "Signal-to-noise ratio (SNR)", description: "Signal-to-noise ratio",
     tooltip: "Ratio of mean signal (score minus random baseline) to mean prompt standard deviation across checkpoints. Measures whether the benchmark signal is distinguishable from prompt-induced noise. Note: unlike the original HPLT-E implementation, the random baseline is subtracted from the signal so that chance-level performance yields SNR \u2248 0. Default threshold: \u2265 3.",
   },
   cv: {
     enabled: false, minStep: 5000, maxStep: 50000, threshold: 15.0, direction: "<=",
-    label: "Stable Pretraining", description: "Coefficient of variation (%)",
+    label: "Stable pretraining (CV)", description: "Coefficient of variation (%)",
     tooltip: "Standard deviation divided by mean score across checkpoints, as percentage. Measures score stability during training, following the original HPLT-E implementation. Default threshold: \u2264 15%.",
   },
   mad: {
     enabled: false, minStep: 5000, maxStep: 50000, threshold: 5.0, direction: "<=",
-    label: "Prompt Sensitivity", description: "Median MAD across prompts",
+    label: "Prompt sensitivity (MAD)", description: "Median MAD across prompts",
     tooltip: "Median Absolute Deviation of scores across prompt variants, taken as the median over all checkpoints. Default threshold: \u2264 5.",
   },
   consistency: {
     enabled: false, minStep: 5000, maxStep: 50000, threshold: 0.5, direction: ">=",
-    label: "Ranking Consistency", description: "Kendall \u03C4 (model rankings)",
+    label: "Ranking consistency", description: "Kendall \u03C4 (model rankings)",
     tooltip: "Average Kendall\u2019s Tau correlation of model rankings between successive checkpoints. Measures whether the relative ordering of models is preserved across training. Default threshold: \u2265 0.5.",
   },
   promptSwitch: {
     enabled: false, minStep: 5000, maxStep: 50000, threshold: 20.0, direction: "<=",
-    label: "Prompt-switch Rate", description: "Best-prompt change rate (%)",
+    label: "Prompt-switch rate", description: "Best-prompt change rate (%)",
     tooltip: "Fraction of checkpoints where the best-performing prompt variant changes, as a percentage.",
   },
   nonRandom: {
