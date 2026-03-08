@@ -184,7 +184,8 @@ main { max-width: 1200px; margin: 0 auto; padding: 0 1.5rem 1.5rem; }
 /* Filter results table */
 .filter-summary { font-size: 0.85rem; color: var(--fg-muted); }
 .filter-table-content { overflow-x: auto; }
-.filter-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; margin-top: 0.6rem; }
+.filter-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 0.78rem; margin-top: 0.6rem; }
+.filter-table th:first-child, .filter-table td:first-child { width: 20%; }
 .filter-table th {
   font-weight: 600; text-align: center; padding: 0.35rem 0.5rem;
   border-bottom: 2px solid var(--border); color: var(--fg-muted);

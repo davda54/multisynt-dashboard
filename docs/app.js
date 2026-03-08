@@ -21,12 +21,12 @@ let filterCriteria = {
   },
   snr: {
     enabled: false, minStep: 5000, maxStep: 50000, threshold: 3.0, direction: ">=",
-    label: "SNR", description: "Signal-to-noise ratio",
+    label: "Signal-to-noise Ratio", description: "Signal-to-noise ratio",
     tooltip: "Ratio of mean signal (score minus random baseline) to mean prompt standard deviation across checkpoints. Measures whether the benchmark signal is distinguishable from prompt-induced noise. Note: unlike the original HPLT-E implementation, the random baseline is subtracted from the signal so that chance-level performance yields SNR \u2248 0. Default threshold: \u2265 3.",
   },
   cv: {
     enabled: false, minStep: 5000, maxStep: 50000, threshold: 15.0, direction: "<=",
-    label: "CV", description: "Coefficient of variation (%)",
+    label: "Stable Pretraining", description: "Coefficient of variation (%)",
     tooltip: "Standard deviation divided by mean score across checkpoints, as percentage. Measures score stability during training, following the original HPLT-E implementation. Default threshold: \u2264 15%.",
   },
   mad: {
@@ -36,17 +36,17 @@ let filterCriteria = {
   },
   consistency: {
     enabled: false, minStep: 5000, maxStep: 50000, threshold: 0.5, direction: ">=",
-    label: "Ordering Consistency", description: "Kendall \u03C4 (model rankings)",
+    label: "Ranking Consistency", description: "Kendall \u03C4 (model rankings)",
     tooltip: "Average Kendall\u2019s Tau correlation of model rankings between successive checkpoints. Measures whether the relative ordering of models is preserved across training. Default threshold: \u2265 0.5.",
   },
   promptSwitch: {
     enabled: false, minStep: 5000, maxStep: 50000, threshold: 20.0, direction: "<=",
-    label: "Prompt Switch Rate", description: "Best-prompt change rate (%)",
+    label: "Prompt-switch Rate", description: "Best-prompt change rate (%)",
     tooltip: "Fraction of checkpoints where the best-performing prompt variant changes, as a percentage.",
   },
   nonRandom: {
     enabled: false, minStep: 5000, maxStep: 50000, threshold: 5.0, direction: ">=",
-    label: "Non-Randomness", description: "Max score \u2212 random baseline",
+    label: "Non-randomness", description: "Max score \u2212 random baseline",
     tooltip: "Difference between the maximum score and the task\u2019s random baseline. Verifies the model learned beyond chance. Default threshold: \u2265 5.",
   },
 };
@@ -499,6 +499,19 @@ function bindEventListeners() {
     showPromptDeviation = e.target.checked;
     renderChart();
   });
+
+  const promptDevLabel = document.getElementById("prompt-dev-label");
+  if (promptDevLabel) {
+    promptDevLabel.style.cursor = "help";
+    promptDevLabel.style.textDecoration = "underline";
+    promptDevLabel.style.textDecorationStyle = "dotted";
+    promptDevLabel.style.textUnderlineOffset = "3px";
+    attachTooltip(promptDevLabel, () => ({
+      title: "Prompt uncertainty",
+      body: "Include prompt-template uncertainty in the error band. Computed as the standard deviation across prompt variants divided by \u221An, combined in quadrature with the sampling standard error.",
+      footer: "",
+    }));
+  }
 
   document.getElementById("task-select").addEventListener("change", (e) => {
     currentTaskSelection = e.target.value;
@@ -1287,7 +1300,7 @@ function renderFilterTable() {
   table.innerHTML = "";
   const ms = getMetricsSetup();
   const criterionOrder = ["monotonicity", "snr", "cv", "mad", "consistency", "promptSwitch", "nonRandom"];
-  const criterionHeaders = ["Mono", "SNR", "CV", "MAD", "Consist", "Switch", "Non-Rand"];
+  const criterionHeaders = ["Monotonicity", "SNR", "CV", "MAD", "Consistency", "Switch rate", "Non-Randomness"];
 
   const thead = document.createElement("thead");
   const headerRow = document.createElement("tr");
