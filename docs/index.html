@@ -25,7 +25,7 @@
                 <label for="task-select">Task:</label>
                 <select id="task-select">
                     <option value="__filtered__" title="Micro-average over tasks passing HPLT-E signal-quality criteria (monotonicity, SNR, CV, prompt sensitivity). Excludes noisy or unreliable benchmarks.">Signal-filtered tasks</option>
-                    <option value="__all_macro__" title="Scores are first averaged within each task category, then averaged across categories. This gives equal weight to each category regardless of how many tasks it contains.">All (group-average)</option>
+                    <option value="__all_macro__" title="Scores are first averaged within each task category, then averaged across categories. This gives equal weight to each category regardless of how many tasks it contains.">All (category-average)</option>
                     <option value="__all__" title="Simple average across all tasks. Each task contributes equally regardless of category.">All (task-average)</option>
                     <option value="__custom__" hidden>Custom (task-average)</option>
                 </select>
@@ -41,7 +41,7 @@
             </div>
 
             <div class="control-group">
-                <label for="prompt-agg-select">Prompt-aggregation:</label>
+                <label for="prompt-agg-select">Prompt aggregation:</label>
                 <select id="prompt-agg-select" class="control-select">
                     <option value="max" selected>max</option>
                     <option value="mean">mean</option>
@@ -65,9 +65,9 @@
             </div>
 
             <div class="control-group">
-                <label class="toggle-label">
+                <label class="toggle-label" title="Include prompt-template uncertainty in the error band. Computed as the standard deviation across prompt variants divided by √n, combined in quadrature with the sampling standard error.">
                     <input type="checkbox" id="prompt-dev-toggle" checked>
-                    <span>Prompt deviation</span>
+                    <span>Prompt uncertainty</span>
                 </label>
             </div>
         </div>
