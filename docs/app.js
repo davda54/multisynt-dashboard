@@ -53,6 +53,40 @@ let filterCriteria = {
 let filterResults = {}; // {bench: {criterionName: {value, pass}}}
 let allFilterBenchmarks = new Set();
 
+// Per-language default filter criteria overrides (keys not listed use the global defaults above)
+const FILTER_DEFAULTS = {
+  French: {
+    monotonicity: { enabled: true, minStep: 1000, maxStep: 45000, threshold: 0.25 },
+    snr: { enabled: true, minStep: 5000, maxStep: 45000, threshold: 1 },
+    cv: { enabled: false, minStep: 5000, maxStep: 50000, threshold: 15 },
+    mad: { enabled: false, minStep: 5000, maxStep: 50000, threshold: 5 },
+    consistency: { enabled: true, minStep: 5000, maxStep: 45000, threshold: 0.5 },
+    promptSwitch: { enabled: false, minStep: 5000, maxStep: 50000, threshold: 20 },
+    nonRandom: { enabled: true, minStep: 5000, maxStep: 45000, threshold: 5 },
+  },
+  Spanish: {
+    monotonicity: { enabled: true, minStep: 1000, maxStep: 45000, threshold: 0.25 },
+    snr: { enabled: true, minStep: 5000, maxStep: 45000, threshold: 1 },
+    cv: { enabled: false, minStep: 5000, maxStep: 50000, threshold: 15 },
+    mad: { enabled: true, minStep: 5000, maxStep: 45000, threshold: 5 },
+    consistency: { enabled: true, minStep: 5000, maxStep: 45000, threshold: 0 },
+    promptSwitch: { enabled: false, minStep: 5000, maxStep: 50000, threshold: 20 },
+    nonRandom: { enabled: true, minStep: 5000, maxStep: 45000, threshold: 5 },
+  },
+};
+
+function applyFilterDefaults(lang) {
+  const defaults = FILTER_DEFAULTS[lang];
+  if (!defaults) return;
+  for (const [name, vals] of Object.entries(defaults)) {
+    if (!filterCriteria[name]) continue;
+    const cfg = filterCriteria[name];
+    cfg.enabled = vals.enabled;
+    cfg.minStep = vals.minStep;
+    cfg.maxStep = vals.maxStep;
+    cfg.threshold = vals.threshold;
+  }
+}
 
 const MODEL_COLORS = [
   "#6366f1", "#f43f5e", "#10b981", "#f59e0b", "#8b5cf6",
@@ -371,6 +405,7 @@ async function init() {
     const languages = Object.keys(DATA.languages);
     if (languages.length === 0) throw new Error("No languages found in data");
     currentLang = languages[0];
+    applyFilterDefaults(currentLang);
     buildTabs(languages);
     const hasURLState = restoreStateFromURL();
     checkedTasks = new Set(Object.keys(getMetricsSetup()));
@@ -460,6 +495,7 @@ function bindEventListeners() {
     document.querySelector(".tab-btn.active")?.classList.remove("active");
     btn.classList.add("active");
     currentLang = btn.dataset.lang;
+    applyFilterDefaults(currentLang);
     // Rebuild UI for new language
     populateTaskDropdown();
     const prevSel = currentTaskSelection;
@@ -1418,7 +1454,7 @@ function exportFilterCriteria() {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = "filter-criteria.json";
+  a.href = url; a.download = "filter-criteria-" + (currentLang || "default").toLowerCase() + ".json";
   document.body.appendChild(a); a.click();
   document.body.removeChild(a); URL.revokeObjectURL(url);
 }
