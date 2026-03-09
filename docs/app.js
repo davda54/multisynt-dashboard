@@ -372,16 +372,21 @@ async function init() {
     if (languages.length === 0) throw new Error("No languages found in data");
     currentLang = languages[0];
     buildTabs(languages);
+    const hasURLState = restoreStateFromURL();
     checkedTasks = new Set(Object.keys(getMetricsSetup()));
     populateTaskDropdown();
     bindEventListeners();
+    if (hasURLState) {
+      syncUIFromState();
+    } else {
+      currentTaskSelection = "__filtered__";
+      document.getElementById("task-select").value = "__filtered__";
+    }
     buildCheckboxes();
-    // Default to filtered
-    currentTaskSelection = "__filtered__";
-    document.getElementById("task-select").value = "__filtered__";
     allFilterBenchmarks = new Set(Object.keys(getMetricsSetup()));
     autoSetNormalization();
     renderChart();
+    pushStateToURL();
   } catch (err) {
     console.error("init failed:", err);
     const el = document.getElementById("chart");
@@ -469,6 +474,7 @@ function bindEventListeners() {
     autoSetNormalization();
     filterPanelRendered = false;
     renderChart();
+    pushStateToURL();
   });
 
   document.querySelectorAll(".shot-btn").forEach((btn) => {
@@ -477,27 +483,32 @@ function bindEventListeners() {
       btn.classList.add("active");
       currentShot = btn.dataset.shot;
       renderChart();
+      pushStateToURL();
     });
   });
 
   document.getElementById("prompt-agg-select").addEventListener("change", (e) => {
     currentPromptAgg = e.target.value;
     renderChart();
+    pushStateToURL();
   });
 
   document.getElementById("norm-select").addEventListener("change", (e) => {
     currentNormalization = e.target.value;
     renderChart();
+    pushStateToURL();
   });
 
   document.getElementById("metric-select").addEventListener("change", (e) => {
     currentMetric = e.target.value;
     renderChart();
+    pushStateToURL();
   });
 
   document.getElementById("prompt-dev-toggle").addEventListener("change", (e) => {
     showPromptDeviation = e.target.checked;
     renderChart();
+    pushStateToURL();
   });
 
   const promptDevLabel = document.getElementById("prompt-dev-label");
@@ -528,6 +539,7 @@ function bindEventListeners() {
     syncCheckboxStates();
     autoSetNormalization();
     renderChart();
+    pushStateToURL();
   });
 
   document.getElementById("select-all-btn").addEventListener("click", () => {
@@ -1251,7 +1263,7 @@ function renderFilterPanel() {
     cb.addEventListener("change", () => {
       cfg.enabled = cb.checked;
       card.classList.toggle("disabled", !cfg.enabled);
-      runFilter(); renderChart();
+      runFilter(); renderChart(); pushStateToURL();
     });
     const label = document.createElement("label");
     label.className = "criterion-label"; label.htmlFor = cb.id;
@@ -1274,20 +1286,20 @@ function renderFilterPanel() {
     minLabel.textContent = "Steps: ";
     const minInput = document.createElement("input");
     minInput.type = "number"; minInput.value = cfg.minStep; minInput.min = 1000; minInput.max = 50000; minInput.step = 1000;
-    minInput.addEventListener("change", () => { cfg.minStep = parseInt(minInput.value) || 1000; runFilter(); renderChart(); });
+    minInput.addEventListener("change", () => { cfg.minStep = parseInt(minInput.value) || 1000; runFilter(); renderChart(); pushStateToURL(); });
     minLabel.appendChild(minInput); controls.appendChild(minLabel);
     const dash = document.createElement("span"); dash.textContent = "\u2013"; dash.style.color = "var(--fg-muted)";
     controls.appendChild(dash);
     const maxInput = document.createElement("input");
     maxInput.type = "number"; maxInput.value = cfg.maxStep; maxInput.min = 1000; maxInput.max = 50000; maxInput.step = 1000;
-    maxInput.addEventListener("change", () => { cfg.maxStep = parseInt(maxInput.value) || 50000; runFilter(); renderChart(); });
+    maxInput.addEventListener("change", () => { cfg.maxStep = parseInt(maxInput.value) || 50000; runFilter(); renderChart(); pushStateToURL(); });
     controls.appendChild(maxInput);
     const threshLabel = document.createElement("label");
     threshLabel.textContent = "Threshold " + cfg.direction + " ";
     const threshInput = document.createElement("input");
     threshInput.type = "number"; threshInput.className = "threshold-input";
     threshInput.value = cfg.threshold; threshInput.step = name === "monotonicity" ? 0.1 : 1;
-    threshInput.addEventListener("change", () => { cfg.threshold = parseFloat(threshInput.value) || 0; runFilter(); renderChart(); });
+    threshInput.addEventListener("change", () => { cfg.threshold = parseFloat(threshInput.value) || 0; runFilter(); renderChart(); pushStateToURL(); });
     threshLabel.appendChild(threshInput); controls.appendChild(threshLabel);
     card.appendChild(controls); grid.appendChild(card);
   }
@@ -1369,6 +1381,20 @@ function showFilterUI() {
         toggleBtn.textContent = filterPanelExpanded ? "Hide signal criteria" : "Show signal criteria";
       };
     }
+    // Download / upload buttons
+    const dlBtn = document.getElementById("filter-download-btn");
+    if (dlBtn) dlBtn.onclick = () => exportFilterCriteria();
+    const ulBtn = document.getElementById("filter-upload-btn");
+    const ulInput = document.getElementById("filter-upload-input");
+    if (ulBtn && ulInput) {
+      ulBtn.onclick = () => ulInput.click();
+      ulInput.onchange = () => {
+        const file = ulInput.files[0];
+        if (!file) return;
+        file.text().then((json) => importFilterCriteria(json));
+        ulInput.value = "";
+      };
+    }
   }
 }
 
@@ -1378,6 +1404,109 @@ function hideFilterUI() {
   filterPanelRendered = false;
   const heading = document.querySelector("#task-checkboxes .checkbox-header h3");
   if (heading) heading.textContent = "Tasks included in aggregation";
+}
+
+// ============================================================
+// Criteria download / upload
+// ============================================================
+
+function exportFilterCriteria() {
+  const data = {};
+  for (const [name, cfg] of Object.entries(filterCriteria)) {
+    data[name] = { enabled: cfg.enabled, minStep: cfg.minStep, maxStep: cfg.maxStep, threshold: cfg.threshold };
+  }
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "filter-criteria.json";
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+function importFilterCriteria(json) {
+  let data;
+  try { data = JSON.parse(json); } catch { return; }
+  for (const [name, vals] of Object.entries(data)) {
+    if (!filterCriteria[name]) continue;
+    const cfg = filterCriteria[name];
+    if (typeof vals.enabled === "boolean") cfg.enabled = vals.enabled;
+    if (typeof vals.minStep === "number") cfg.minStep = vals.minStep;
+    if (typeof vals.maxStep === "number") cfg.maxStep = vals.maxStep;
+    if (typeof vals.threshold === "number") cfg.threshold = vals.threshold;
+  }
+  filterPanelRendered = false;
+  if (currentTaskSelection === "__filtered__") {
+    showFilterUI();
+    runFilter();
+  }
+  renderChart();
+  pushStateToURL();
+}
+
+// ============================================================
+// URL state management
+// ============================================================
+
+function pushStateToURL() {
+  const p = new URLSearchParams();
+  if (currentLang) p.set("lang", currentLang);
+  p.set("shot", currentShot);
+  p.set("task", currentTaskSelection);
+  p.set("pagg", currentPromptAgg);
+  p.set("norm", currentNormalization);
+  if (currentMetric) p.set("metric", currentMetric);
+  p.set("pdev", showPromptDeviation ? "1" : "0");
+  // Encode filter criteria compactly: name=enabled,min,max,thresh
+  const fc = [];
+  for (const [name, cfg] of Object.entries(filterCriteria)) {
+    fc.push(name + ":" + (cfg.enabled ? "1" : "0") + "," + cfg.minStep + "," + cfg.maxStep + "," + cfg.threshold);
+  }
+  p.set("fc", fc.join(";"));
+  history.replaceState(null, "", "?" + p.toString());
+}
+
+function restoreStateFromURL() {
+  const p = new URLSearchParams(window.location.search);
+  if (!p.has("lang") && !p.has("task")) return false; // no state in URL
+  const languages = Object.keys(DATA.languages);
+  if (p.has("lang") && languages.includes(p.get("lang"))) currentLang = p.get("lang");
+  if (p.has("shot")) currentShot = p.get("shot");
+  if (p.has("pagg")) currentPromptAgg = p.get("pagg");
+  if (p.has("norm")) currentNormalization = p.get("norm");
+  if (p.has("metric")) currentMetric = p.get("metric");
+  if (p.has("pdev")) showPromptDeviation = p.get("pdev") === "1";
+  if (p.has("task")) currentTaskSelection = p.get("task");
+  // Restore filter criteria
+  if (p.has("fc")) {
+    for (const part of p.get("fc").split(";")) {
+      const [name, vals] = part.split(":");
+      if (!name || !vals || !filterCriteria[name]) continue;
+      const [en, min, max, thresh] = vals.split(",");
+      const cfg = filterCriteria[name];
+      cfg.enabled = en === "1";
+      if (!isNaN(Number(min))) cfg.minStep = Number(min);
+      if (!isNaN(Number(max))) cfg.maxStep = Number(max);
+      if (!isNaN(Number(thresh))) cfg.threshold = Number(thresh);
+    }
+  }
+  return true;
+}
+
+function syncUIFromState() {
+  // Language tabs
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.lang === currentLang);
+  });
+  // Shot buttons
+  document.querySelectorAll(".shot-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.shot === currentShot);
+  });
+  // Dropdowns
+  document.getElementById("task-select").value = currentTaskSelection;
+  document.getElementById("prompt-agg-select").value = currentPromptAgg;
+  document.getElementById("norm-select").value = currentNormalization;
+  // Prompt deviation toggle
+  document.getElementById("prompt-dev-toggle").checked = showPromptDeviation;
 }
 
 // ============================================================
